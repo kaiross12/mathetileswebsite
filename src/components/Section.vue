@@ -1,6 +1,7 @@
 <template>
   <section 
-    class="cards-carousel-section" 
+    class="cards-carousel-section"
+    id ="uygulama" 
     :style="{ '--bg-image': `url(${bgImage})` }"
   >
     <div class="carousel-wrapper">

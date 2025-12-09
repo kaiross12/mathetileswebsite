@@ -1,5 +1,5 @@
 <template>
-  <section class="about-section">
+  <section class="about-section" id="hakkimizda">
     <div class="content-wrapper">
       <div class="text-content">
         <h2 class="title">Mathetiles : Sanat ve Matematiği Birleştiriyor</h2>

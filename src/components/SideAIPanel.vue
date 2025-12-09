@@ -142,7 +142,7 @@ const typeWriterEffect = async (text) => {
 
 <style scoped>
 .ai-side-panel {
-  width: 360px;
+  width: 370px;
   height: 700px;
   background: white;
   border-radius: 20px;

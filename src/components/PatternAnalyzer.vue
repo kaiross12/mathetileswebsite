@@ -17,7 +17,8 @@
             @mousemove="handleMouseMove"
             @mouseup="handleMouseUp"
             @mouseleave="handleMouseUp"
-          >
+            
+            @touchstart.passive="handleTouchStart"   @touchmove.passive="handleTouchMove"     @touchend="handleTouchEnd"               >
             <div class="toolbar">
                <button 
                 :class="{ active: toolMode === 'pan' }" 
@@ -206,69 +207,110 @@ const resetData = () => {
   resetZoom()
 }
 
-// --- MOUSE EVENTS HANDLER ---
+// --- MOUSE & TOUCH EVENTS HANDLER ---
+
+// Fare ve dokunma olaylarında koordinatları almak için yardımcı fonksiyon
+const getCoords = (e) => {
+  // Eğer dokunma olayı ise ilk dokunuşun koordinatlarını al
+  if (e.touches && e.touches.length > 0) {
+    return { clientX: e.touches[0].clientX, clientY: e.touches[0].clientY }
+  }
+  // Fare olayı ise fare koordinatlarını al
+  return { clientX: e.clientX, clientY: e.clientY }
+}
 
 const getMousePosInImage = (e) => {
   if (!imageRef.value) return { x: 0, y: 0 }
+  const { clientX, clientY } = getCoords(e)
   const rect = imageRef.value.getBoundingClientRect()
-  const x = (e.clientX - rect.left) / scale.value
-  const y = (e.clientY - rect.top) / scale.value
+  const x = (clientX - rect.left) / scale.value
+  const y = (clientY - rect.top) / scale.value
   return { x, y }
 }
 
-const handleMouseDown = (e) => {
-  if (e.button !== 0) return 
-  
-  isDragging.value = true
-  
-  if (toolMode.value === 'pan') {
-    dragStart.value = { 
-      x: e.clientX - translateX.value, 
-      y: e.clientY - translateY.value 
+// Ortak Etkileşim Mantığı
+
+const startInteraction = (e) => {
+    isDragging.value = true
+    
+    if (toolMode.value === 'pan') {
+      const { clientX, clientY } = getCoords(e)
+      dragStart.value = { 
+        x: clientX - translateX.value, 
+        y: clientY - translateY.value 
+      }
+    } else if (toolMode.value === 'select') {
+      const pos = getMousePosInImage(e)
+      selection.value = {
+        x: pos.x,
+        y: pos.y,
+        w: 0,
+        h: 0,
+        startX: pos.x,
+        startY: pos.y,
+        active: true
+      }
+      resultReady.value = false
+      detectedBoxes.value = []
     }
-  } else if (toolMode.value === 'select') {
-    const pos = getMousePosInImage(e)
-    selection.value = {
-      x: pos.x,
-      y: pos.y,
-      w: 0,
-      h: 0,
-      startX: pos.x,
-      startY: pos.y,
-      active: true
-    }
-    resultReady.value = false
-    detectedBoxes.value = []
-  }
 }
 
+const moveInteraction = (e) => {
+    if (!isDragging.value) return
+
+    if (toolMode.value === 'pan') {
+      const { clientX, clientY } = getCoords(e)
+      translateX.value = clientX - dragStart.value.x
+      translateY.value = clientY - dragStart.value.y
+    } else if (toolMode.value === 'select' && selection.value.active) {
+      const pos = getMousePosInImage(e)
+      const currentX = pos.x
+      const currentY = pos.y
+      const startX = selection.value.startX
+      const startY = selection.value.startY
+      
+      selection.value.x = Math.min(currentX, startX)
+      selection.value.y = Math.min(currentY, startY)
+      selection.value.w = Math.abs(currentX - startX)
+      selection.value.h = Math.abs(currentY - startY)
+    }
+}
+
+const endInteraction = () => {
+    isDragging.value = false
+    if (toolMode.value === 'select') {
+      selection.value.active = false
+    }
+}
+
+// Fare Olayları
+const handleMouseDown = (e) => {
+  if (e.button !== 0) return 
+  startInteraction(e)
+}
 const handleMouseMove = (e) => {
   if (!isDragging.value) return
   e.preventDefault()
-
-  if (toolMode.value === 'pan') {
-    translateX.value = e.clientX - dragStart.value.x
-    translateY.value = e.clientY - dragStart.value.y
-  } else if (toolMode.value === 'select' && selection.value.active) {
-    const pos = getMousePosInImage(e)
-    const currentX = pos.x
-    const currentY = pos.y
-    const startX = selection.value.startX
-    const startY = selection.value.startY
-    
-    selection.value.x = Math.min(currentX, startX)
-    selection.value.y = Math.min(currentY, startY)
-    selection.value.w = Math.abs(currentX - startX)
-    selection.value.h = Math.abs(currentY - startY)
-  }
+  moveInteraction(e)
 }
-
 const handleMouseUp = () => {
-  isDragging.value = false
-  if (toolMode.value === 'select') {
-    selection.value.active = false
-  }
+  endInteraction()
 }
+
+// Dokunmatik Olaylar
+const handleTouchStart = (e) => {
+    if (e.touches.length > 1) return; // Multi-touch'ı engelle
+    startInteraction(e);
+}
+const handleTouchMove = (e) => {
+    if (e.touches.length > 1) return;
+    e.preventDefault(); // Kaydırmayı engelle (Pan veya Seçim yaparken kritik)
+    moveInteraction(e);
+}
+const handleTouchEnd = () => {
+    endInteraction();
+}
+
 
 const handleWheel = (e) => {
   const zoomFactor = 0.1
@@ -370,24 +412,34 @@ const getScoreColor = (score) => {
 .analyzer-modal {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
   background: rgba(22, 45, 51, 0.85); backdrop-filter: blur(8px);
-  display: flex; justify-content: center; align-items: center; z-index: 9999;
+  display: flex; 
+  justify-content: center; 
+  align-items: flex-start; /* Mobil/Tablet için modalın üstten başlamasını sağlar */
+  z-index: 9999;
   font-family: 'Poppins', sans-serif;
-  overflow: auto; /* Küçük ekranlar için scroll */
+  overflow-y: auto; /* Modal içeriği çok büyükse kaydırma çubuğu çıkar */
+  padding-top: 40px; /* Popup'ı üstten uygun bir boşlukla aşağıya iter */
+  padding-bottom: 40px; 
 }
 
-/* Yeni Wrapper: Sol Panel + Sağ AI Panelini tutar */
+/* --- Responsive Düzenlemeler --- */
+
 .modal-wrapper {
   display: flex;
-  align-items: flex-start;
-  gap: 0; /* Boşluğu SideAIPanel'in margin-left'i hallediyor */
+  align-items: flex-start; /* Dikeyde üstten hizala */
+  justify-content: center; /* Yatayda ortala */
+  width: 100%;
+  padding: 10px;
+  box-sizing: border-box;
+  padding-top: 7rem;
 }
 
-/* Eski .modal-content -> .main-panel olarak güncellendi */
 .main-panel {
   background: white; 
-  width: 1000px; 
-  max-width: 95vw; 
-  height: 700px; /* Yükseklik SideAIPanel ile eşitlendi (650->700) */
+  width: 100%; 
+  max-width: 1000px; 
+  height: 700px;
+  max-height: 95vh;
   border-radius: 20px; 
   position: relative; 
   overflow: hidden;
@@ -459,7 +511,8 @@ const getScoreColor = (score) => {
 /* Sağ Taraf (Analiz Sonuçları) */
 .results-section {
   flex: 1.2; padding: 40px 30px; background: #ffffff; display: flex; flex-direction: column;
-  border-left: 1px solid #e2e8f0; overflow-y: auto;
+  border-left: 1px solid #e2e8f0; 
+  overflow-y: auto; /* Analiz sonuçları bölümünün scrollbar'ı */
 }
 .custom-scrollbar::-webkit-scrollbar { width: 6px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
@@ -500,4 +553,107 @@ const getScoreColor = (score) => {
 .analysis-log p { margin-bottom: 8px; display: flex; align-items: center; gap: 10px; }
 .error-log { margin-top: 15px; color: #ef4444; font-size: 0.85rem; }
 .text-green { color: #16a34a; } .text-blue { color: #0284c7; } .text-orange { color: #ea580c; }
+
+
+/* --- Responsive Kırılma Noktaları --- */
+
+/* Tablet (Max 1200px) ve Küçük Ekran Düzenlemeleri */
+@media (max-width: 1200px) {
+  .modal-wrapper {
+    flex-direction: column;
+    align-items: center; 
+    gap: 20px;
+    padding: 0; 
+  }
+  
+  .main-panel {
+    width: 95vw;
+    height: auto; 
+    min-height: 600px;
+  }
+}
+
+/* Mobil Düzenlemeler (Max 768px) */
+@media (max-width: 768px) {
+  .modal-wrapper{
+    /* Tablet ve mobil görünümde wrapper padding'i kaldırıldı, 
+       üstten boşluk .analyzer-modal'daki padding-top ile sağlanır. */
+    padding: 0; 
+  }
+  
+  .main-panel {
+    width: 90vw;
+    min-height: auto;
+    border-radius: 12px;
+  }
+
+  /* Ana paneli dikey bölümlere ayır */
+  .analysis-layout {
+    flex-direction: column; 
+    height: auto;
+  }
+
+  /* Görsel bölümü */
+  .image-section {
+    flex: none; 
+    height: 350px; 
+    min-height: 300px;
+    padding: 10px;
+  }
+  
+  /* Görseli kaplayan konteynerin ölçeği */
+  .target-image { 
+      max-height: 100%; 
+  }
+
+  /* Araç çubuğunu ve zoom kontrolünü küçült */
+  .toolbar {
+    top: 10px; left: 10px;
+    padding: 3px;
+    gap: 5px;
+  }
+  .toolbar button {
+    width: 32px; height: 32px; font-size: 1rem;
+  }
+
+  .zoom-controls {
+    bottom: 10px; right: 10px; left: auto; 
+    padding: 6px 10px;
+    font-size: 0.75rem;
+  }
+
+  /* Sonuçlar bölümü */
+  .results-section {
+    flex: none; 
+    padding: 20px 15px; 
+    border-left: none;
+    border-top: 1px solid #e2e8f0; 
+  }
+
+  .metrics-grid {
+    grid-template-columns: 1fr; 
+    gap: 10px;
+  }
+  
+  .analyze-btn {
+    padding: 12px;
+  }
+
+  h2 { font-size: 1.5rem; }
+  .subtitle { font-size: 0.8rem; }
+}
+
+/* Çok Küçük Ekranlar (Max 480px) */
+@media (max-width: 480px) {
+  .metric-card {
+    padding: 10px;
+  }
+  .icon-box {
+    width: 35px; height: 35px; font-size: 1rem; margin-right: 10px;
+  }
+  .metric-info strong { font-size: 1rem; }
+  .analyze-btn {
+    font-size: 0.9rem;
+  }
+}
 </style>

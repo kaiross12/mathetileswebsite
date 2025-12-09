@@ -1,5 +1,5 @@
 <template>
-  <section class="features-section">
+  <section class="features-section" id="ozellikler">
     <div class="header-content">
       <h2 class="main-title">Temel Özelliklerimiz</h2>
       <p class="main-subtitle">Motif Analizini Bir Sonraki Seviyeye Taşıyın</p>
